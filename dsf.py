@@ -1,53 +1,78 @@
+import os
 import asyncio
+import logging
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 
-# Твои данные
-BOT_TOKEN = '8692941416:AAEw-_MxtWtQ90bm0yfPDAP9WNOZIKHYpN8'
-CHANNEL_ID = -1003773336373  # Замени на ID твоего канала (обязательно с минусом)
+# Включаем логирование, чтобы видеть отчеты о работе в консоли Railway
+logging.basicConfig(level=logging.INFO)
 
+# Получаем данные из переменных окружения (Environment Variables)
+# На Railway тебе нужно будет создать переменные с этими именами
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+raw_channel_id = os.getenv('CHANNEL_ID')
+
+# Проверка, что переменные заданы, чтобы бот не упал с непонятной ошибкой
+if not BOT_TOKEN:
+    exit("Ошибка: Переменная BOT_TOKEN не установлена в настройках Railway!")
+if not raw_channel_id:
+    exit("Ошибка: Переменная CHANNEL_ID не установлена в настройках Railway!")
+
+try:
+    CHANNEL_ID = int(raw_channel_id)
+except ValueError:
+    exit("Ошибка: CHANNEL_ID должен быть числом (например, -100...)")
+
+# Инициализация бота и диспетчера
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Обработчик команды /start
+# 1. Обработчик команды /start
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
     await message.answer(
-        "Привет! Напиши свой отзыв или предложение в чат, и я передам его администраторам."
+        "Привет! Напиши свой отзыв или предложение в чат, и я передам его администраторам канала."
     )
 
-# Обработчик для пересылки отзывов
+# 2. Обработчик для пересылки отзывов (текстовых сообщений)
 @dp.message(F.text)
 async def handle_review(message: types.Message):
-    # Формируем красивый текст для канала
+    # Определяем, как подписать автора отзыва
     username = message.from_user.username
-    user_link = f"@{username}" if username else message.from_user.first_name
+    user_info = f"@{username}" if username else f"{message.from_user.first_name} (ID: {message.from_user.id})"
     
+    # Формируем текст сообщения для канала
     review_text = (
         f"📝 <b>Новый отзыв!</b>\n\n"
-        f"👤 От: {user_link}\n"
-        f"💬 Текст: {message.text}"
+        f"👤 <b>От:</b> {user_info}\n"
+        f"💬 <b>Текст:</b> {message.text}"
     )
 
     try:
-        # Бот отправляет сформированное сообщение в канал
+        # Отправка сообщения в канал
         await bot.send_message(
             chat_id=CHANNEL_ID, 
             text=review_text, 
             parse_mode="HTML"
         )
-        # Отвечаем пользователю, что всё прошло успешно
-        await message.answer("Спасибо! Твой отзыв успешно отправлен.")
+        # Подтверждение пользователю
+        await message.answer("✅ Спасибо! Твой отзыв успешно отправлен в канал.")
+        logging.info(f"Отзыв от {user_info} успешно отправлен.")
         
     except Exception as e:
-        # Если бот не в канале или ID указан неверно
-        await message.answer("Произошла ошибка при отправке отзыва. Попробуйте позже.")
-        print(f"Ошибка: {e}")
+        # Если что-то пошло не так (например, бот не админ в канале)
+        await message.answer("❌ Произошла ошибка при отправке. Попробуйте позже.")
+        logging.error(f"Ошибка при отправке в канал: {e}")
 
-# Запуск бота
+# Главная функция запуска
 async def main():
-    print("Бот запущен...")
+    logging.info("Бот запускается...")
+    # Пропускаем накопившиеся сообщения, чтобы бот не спамил при включении
+    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logging.info("Бот остановлен вручную")
